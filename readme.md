@@ -40,11 +40,11 @@ Etch batch will run separately.
 TODO – In the future the “Batch Separator” will be configure by the user.
 
 ### CLR Integration – 
-This solution is working with 2 assemblies.
-1. CLR_Util – Assembly that Contains usp_clr_ExecuteByDotNet - clr Stored Procedure that run script and catch if there is any errors to a table. The main use is to run scripts that get error 111. That’s in the case of create\alter a new View\SP\UFN\etc...
-2. RegexFunction - Assembly that Contains RegExSplit - clr Table valued function that can separate text into several rows by regular excretion https://en.wikipedia.org/wiki/Regular_expression syntax.
+This solution is working with 2 assemblies.  
+1. CLR_Util – Assembly that Contains usp_clr_ExecuteByDotNet - clr Stored Procedure that run script and catch if there is any errors to a table. The main use is to run scripts that get error [111](https://technet.microsoft.com/en-us/library/cc645611(v=sql.105).aspx). That’s in the case of create\alter a new View\SP\UFN\etc...  
+2. RegexFunction - Assembly that Contains RegExSplit - clr Table valued function that can separate text into several rows by [regular excretion](https://en.wikipedia.org/wiki/Regular_expression) syntax.  
 This assembly has been created by Phil Factor ([t] (https://twitter.com/Phil_Factor)| [b] (https://www.simple-talk.com/author/phil-factor)). 
-[More info] ()https://www.simple-talk.com/sql/t-sql-programming/clr-assembly-regex-functions-for-sql-server-by-example)
+[More info](https://www.simple-talk.com/sql/t-sql-programming/clr-assembly-regex-functions-for-sql-server-by-example)
 
 ### Schema Information
 
