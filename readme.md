@@ -1,6 +1,6 @@
 # Version Deploy
 Version Deploy is a set of scripts by Rimer Sharon.
-All SQL script that you would like to run on databases, should be at a path that the SQL Server can retch to.
+All SQL script that you would like to run on databases, should be a path that the SQL Server can reach to.
 If you are working with TFS, SVN, Git or any other CI.
 Please make sure that you can build a solution that can get all desired file into your path (local or network).
 
@@ -22,7 +22,7 @@ Version Deploy is licensed under the [MIT License](http://opensource.org/license
 
 ## How to use this solution
 ### How etch SQL script file should look like?
-Every script should have 2 line of comments. Etch line should start and end with triple (-).
+Every script should have 2 line of comments. Each line should start and end with triple (-).
 The first line supposed to be the version mark and look like this
 ```sql
  --- Script for version ____________ ---
@@ -35,14 +35,14 @@ Both 2 lines will stored in user table - [VerDeploy].TextFromAFile, this will be
 
 ### Batch Separator-
 Hard Coded –“GO”  
-Etch script is disassemble to several parts depends on the “batch separator” count.  
-Etch batch will run separately.   
-TODO – In the future the “Batch Separator” will be configure by the user.
+Each script is disassembled to several parts depends on the “batch separator” count.  
+Each batch will run separately.   
+TODO – In the future, the “Batch Separator” will be configured by the user.
 
 ### CLR Integration – 
 This solution is working with 2 assemblies.  
-1. CLR_Util – Assembly that Contains usp_clr_ExecuteByDotNet - clr Stored Procedure that run script and catch if there is any errors to a table. The main use is to run scripts that get error [111](https://technet.microsoft.com/en-us/library/cc645611(v=sql.105).aspx). That’s in the case of create\alter a new View\SP\UFN\etc...  
-2. RegexFunction - Assembly that Contains RegExSplit - clr Table valued function that can separate text into several rows by [regular excretion](https://en.wikipedia.org/wiki/Regular_expression) syntax.  
+1. CLR_Util – Assembly that Contains usp_clr_ExecuteByDotNet - CLR Stored Procedure that runs script and catches if there are any errors in a table. The main use is to run scripts that get error [111](https://technet.microsoft.com/en-us/library/cc645611(v=sql.105).aspx). That’s in the case of create\alter a new View\SP\UFN\etc...  
+2. RegexFunction - Assembly that Contains RegExSplit - CLR table-valued function that can separate text into several rows by [regular excretion](https://en.wikipedia.org/wiki/Regular_expression) syntax.  
 This assembly has been created by Phil Factor ([t] (https://twitter.com/Phil_Factor)| [b] (https://www.simple-talk.com/author/phil-factor)). 
 [More info](https://www.simple-talk.com/sql/t-sql-programming/clr-assembly-regex-functions-for-sql-server-by-example)
 
@@ -55,7 +55,7 @@ This assembly has been created by Phil Factor ([t] (https://twitter.com/Phil_Fac
 	@MapPath (NVARCHAR(255)) 	-- Optional Network Path(Group 1 – At list one).
 	@debug (BIT)			    -- Print Info massages.
 	@IsAllFolder (BIT) 	        -- Run all scripts within the specified folder and sub folders.
-	@MailRecipiants (NVARCHAR(255)) -- Mailing addresss to send results.
+	@MailRecipients (NVARCHAR(255)) -- Mailing addresss to send results.
 2.	**VerDeploy.usp_Util_SetAGToAsync**(Stored Procedure)- Set Always on availability groups to Asynchronous
 	If you are planning to run some scripts that will create indexes or will change indexes, the best practice is to change availability groups to asynchronous.
 	Recommendations for Index Maintenance with [AlwaysOn Availability Groups](https://blogs.msdn.microsoft.com/alwaysonpro/2015/03/03/recommendations-for-index-maintenance-with-alwayson-availability-groups)
