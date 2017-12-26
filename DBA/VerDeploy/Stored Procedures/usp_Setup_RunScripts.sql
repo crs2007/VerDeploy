@@ -1,6 +1,12 @@
 ﻿-- =============================================
 -- Author:      Sharon Rimer
 -- Create date: 15/02/2017
+-- Update date: 18/10/2017 Sharon Rimer @Environment as posability to ignored
+--				12/11/2017 Sharon Rimer Add to [VerDeploy].[RunScriptLog] [Database] column
+--										Fix UTF-8 with BOM. into UTF-8 without BOM. https://stackoverflow.com/questions/18845976/whats-%C3%AF-sign-at-the-beginning-of-my-source-file
+--				15/11/2017 Sharon Rimer Add @RunningScript.
+--				06/12/2017 Sharon Rimer Add SET @Print = CONCAT(@FileName,' run successfully.');
+--				10/12/2017 Sharon Rimer Remove @Environment (Amit will deal on the PowerShell)
 -- Description: Run Script on DB 
 --              1. From Net falder by PowerShell.(@MapPath)
 --              2. From local falder. (@ScriptPath)
@@ -11,12 +17,29 @@ CREATE PROCEDURE [VerDeploy].[usp_Setup_RunScripts]
     @MapPath NVARCHAR(255) ,--Network Path
     @debug BIT = 0 ,
     @IsAllFolder BIT = 0 ,
-    @MailRecipiants NVARCHAR(255) = ''
+    @MailRecipients NVARCHAR(255) = ''
 WITH EXECUTE AS CALLER
 AS
 BEGIN  
     SET NOCOUNT ON;
-	
+
+	DECLARE @RunningScript NVARCHAR(max);
+	SELECT @RunningScript = CONCAT(N'
+--Server:: ',@@SERVERNAME,'(',TRY_CONVERT(sysname,SERVERPROPERTY('MachineName')),') | Host Name: ',HOST_NAME(),'
+DECLARE @DatabaseName sysname = ''',ISNULL(@DatabaseName,'NULL'),''';
+DECLARE @ScriptPath nvarchar(255) = ''',ISNULL(@ScriptPath,'NULL'),''';
+DECLARE @MapPath nvarchar(255) = ''',ISNULL(@MapPath,'NULL'),''';
+DECLARE @debug BIT = ',ISNULL(@debug,'NULL'),';
+DECLARE @IsAllFolder BIT = ',ISNULL(@IsAllFolder,'NULL'),';
+DECLARE @MailRecipients nvarchar(255) = ''',ISNULL(@MailRecipients,'NULL'),''';
+
+EXECUTE [DBA].[VerDeploy].[usp_Setup_RunScripts] 
+   @DatabaseName
+  ,@ScriptPath
+  ,@MapPath
+  ,@debug
+  ,@IsAllFolder
+  ,@MailRecipients');
     DECLARE @error NVARCHAR(2048);
     DECLARE @Print NVARCHAR(4000);
     DECLARE @sql NVARCHAR(MAX);
@@ -36,9 +59,8 @@ BEGIN
 @MapPath (NVARCHAR(255)) 		-- Optional Network Path(Group 1 – At list one).
 @debug (BIT)					-- Print Info massages.
 @IsAllFolder (BIT)				-- Run all scripts within the specified folder and sub folders.
-@MailRecipiants (NVARCHAR(255))	-- Mailing addresss to send results.
-
-	';
+@MailRecipients (NVARCHAR(255))	-- Mailing addresss to send results.';
+	
 
 	SET @Print = CONCAT('Start running with guid - ',@RunGUID);
 	RAISERROR (@Print,10,1) WITH NOWAIT;
@@ -47,14 +69,12 @@ BEGIN
     BEGIN
         IF @DatabaseName IS NULL
             SET @error = CONCAT('@DatabaseName have null value.',@CRLF,N'Please provid a database name from the current server - ', @@SERVICENAME);
-		INSERT  [VerDeploy].RunScriptLog  ([RunGUID] ,[Line],Error) SELECT  @RunGUID , 'Database :',@error;
+		INSERT  [VerDeploy].RunScriptLog  ([RunGUID] ,[Line],Error,[Database]) SELECT  @RunGUID , 'Database :',@error,ISNULL(@DatabaseName,'No @DatabaseName input!');
         RAISERROR(@error,16,1);
 		PRINT @Help;
         RETURN -1;
     END;
 	
-	--Limit of files date
-    DECLARE @NumOfDaysToRunFilesFrom INT = 3; 
     DECLARE @dirOutput TABLE
         (
             subdirectory sysname NULL ,
@@ -66,8 +86,8 @@ BEGIN
 
 
 	--Mail Declaration
-    IF CHARINDEX('@', @MailRecipiants) = 0
-        SELECT  @MailRecipiants = '';--TODO::	Build mailing boxs; CONCAT([Jobs].[ufn_Mail_GetMailRecipiantByProcedureName](OBJECT_SCHEMA_NAME(@@PROCID) + '.' + OBJECT_NAME(@@PROCID)), ';' + @AdditionlMailRecipiants);
+    IF CHARINDEX('@', @MailRecipients) = 0
+        SELECT  @MailRecipients = '';--TODO::	Build mailing boxs; CONCAT([Jobs].[ufn_Mail_GetMailRecipiantByProcedureName](OBJECT_SCHEMA_NAME(@@PROCID) + '.' + OBJECT_NAME(@@PROCID)), ';' + @AdditionlMailRecipiants);
     
 	DECLARE @configData TABLE
         (
@@ -81,9 +101,7 @@ BEGIN
 
 	-- Location of the files to run    
     DECLARE @DeviceName CHAR(2) = NULL;
-
-    --INSERT  [VerDeploy].RunScriptLog ([RunGUID], [Line] ) SELECT  @RunGUID ,N'Start of RunScripts SP on DB - ' + @DatabaseName;
-
+	
 	--creating a temporary table for xp_cmdshell output
     DECLARE @output TABLE ( line VARCHAR(255) );
 	--get xp_cmdshell config data
@@ -120,8 +138,8 @@ BEGIN
     IF @rc = 0
     BEGIN
 		SET @error = N'Root folder dosen''t exists.';
-        INSERT  [VerDeploy].RunScriptLog( [RunGUID] ,[Line] ,[FileName],[Error])
-        SELECT  @RunGUID , N'CheckFolderExists', CONCAT(ISNULL(@ScriptPath, @MapPath), @Path), @error; 
+        INSERT  [VerDeploy].RunScriptLog( [RunGUID] ,[Line] ,[FileName],[Error],[Database])
+        SELECT  @RunGUID , N'CheckFolderExists', CONCAT(ISNULL(@ScriptPath, @MapPath), @Path), @error,@DatabaseName; 
 		SET @error = CONCAT(OBJECT_SCHEMA_NAME(@@PROCID) , '.' , OBJECT_NAME(@@PROCID) , ' :: ',@error);
 		RAISERROR (@error, 16, 1);
 		GOTO CleanUp;
@@ -205,11 +223,16 @@ BEGIN
     SET     [Path] = IIF(RIGHT(@Path, 1) = '\', @Path, @Path + '\')
     WHERE   [Path] IS NULL;
 
+	
+	SELECT	dt.FileName ,FileFlag,RIGHT(dt.FileName, 4) [Extention],[Path]
+	INTO	#FilteredDirTree
+	FROM	#DirTree dt
+
 	--Count Only *.sql files
     SELECT  @NumberOfFiles = COUNT(1)
-    FROM    #DirTree
+    FROM    #FilteredDirTree
     WHERE   FileFlag = 1
-            AND RIGHT(FileName, 4) = '.sql';
+            AND [Extention] = '.sql';
 	
 	--Prefix:: declare veriable
 	DECLARE @FPath VARCHAR(2000);
@@ -219,9 +242,9 @@ BEGIN
 		DECLARE curScriptFile CURSOR LOCAL FAST_FORWARD READ_ONLY FOR 
 		--Insert text from sql file into [VerDeploy].TextFromAFile, default code page as ASCII (varchar)
 		SELECT	CONCAT('INSERT [VerDeploy].TextFromAFile ([RunGUID],[Script],[FileName]) SELECT @RunGUID,BulkColumn,''',[FileName],''' FROM OPENROWSET(BULK N''',[Path],[FileName],''',SINGLE_CLOB)SQLScriptFile;') [Script],CONCAT([Path],[FileName]) [Path],[FileName]
-		FROM    #DirTree
+		FROM    #FilteredDirTree
         WHERE   FileFlag = 1
-                AND RIGHT(FileName, 4) = '.sql'
+                AND [Extention] = '.sql'
         ORDER BY [Path] ,FileName;
 		OPEN curScriptFile
 		
@@ -253,8 +276,8 @@ BEGIN
                 BEGIN
                     SET @error = ERROR_MESSAGE();
 				
-					INSERT  [VerDeploy].RunScriptLog( [RunGUID] ,[Line] ,[FileName],[Error])
-					SELECT  @RunGUID , N'Insert script Text into DB', CONCAT(ISNULL(@ScriptPath, @MapPath), @FPath),@error ; 
+					INSERT  [VerDeploy].RunScriptLog( [RunGUID] ,[Line] ,[FileName],[Error],[Database])
+					SELECT  @RunGUID , N'Insert script Text into DB', CONCAT(ISNULL(@ScriptPath, @MapPath), @FPath),@error,@DatabaseName ; 
 					SET @error = CONCAT(OBJECT_SCHEMA_NAME(@@PROCID) , '.' , OBJECT_NAME(@@PROCID) , ' :: ',@error);
 					RAISERROR (@error, 16, 1);
 					GOTO CleanUp;
@@ -267,6 +290,12 @@ BEGIN
 				RAISERROR (@Print,10,1) WITH NOWAIT;
 			END
 
+			--Fix UTF-8 with BOM. into UTF-8 without BOM.
+			UPDATE VerDeploy.TextFromAFile
+			SET Script = REPLACE(Script,'ï»¿','')
+			WHERE	RunGUID = @RunGUID
+					AND Script LIKE '%ï»¿%';
+
 			BEGIN TRY				
 				EXEC VerDeploy.usp_Util_GetVersionRemarks @FPath,@VersionRemarks OUTPUT,@Version OUTPUT;
 				
@@ -278,8 +307,8 @@ BEGIN
 			BEGIN CATCH
 				SET @error = ERROR_MESSAGE();
 				
-				INSERT  [VerDeploy].RunScriptLog( [RunGUID] ,[Line] ,[FileName],[Error])
-				SELECT  @RunGUID , N'Update script version Text into DB', CONCAT(ISNULL(@ScriptPath, @MapPath), @FPath),@error ; 
+				INSERT  [VerDeploy].RunScriptLog( [RunGUID] ,[Line] ,[FileName],[Error],[Database])
+				SELECT  @RunGUID , N'Update script version Text into DB', CONCAT(ISNULL(@ScriptPath, @MapPath), @FPath),@error,@DatabaseName ; 
 				SET @error = CONCAT(OBJECT_SCHEMA_NAME(@@PROCID) , '.' , OBJECT_NAME(@@PROCID) , ' :: ',@error);
 				RAISERROR (@error, 16, 1);
 				GOTO CleanUp;
@@ -305,7 +334,7 @@ BEGIN
 				SET @Print = 'Start usp_Util_SetAGToAsync';
 				RAISERROR (@Print,10,1) WITH NOWAIT;
 			END
-			INSERT  [VerDeploy].RunScriptLog ([RunGUID] ,[Line],RunDateTime) SELECT  @RunGUID ,'Set Always On Availability Groups To Async.',GETDATE();
+			INSERT  [VerDeploy].RunScriptLog ([RunGUID] ,[Line],RunDateTime,[Database]) SELECT  @RunGUID ,'Set Always On Availability Groups To Async.',GETDATE(),@DatabaseName;
 			EXEC [VerDeploy].[usp_Util_SetAGToAsync] @DatabaseName,@IsAGChangeToASync;
 			UPDATE [VerDeploy].RunScriptLog SET EndDateTime = GETDATE() WHERE RunGUID = @RunGUID AND Line = 'Set Always On Availability Groups To Async.';
 		END TRY
@@ -321,7 +350,7 @@ BEGIN
 
 
 	--Log
-    INSERT  [VerDeploy].RunScriptLog ( [RunGUID] , [Line] , [FileName],RunDateTime )   SELECT  @RunGUID , N'Running ' + CONVERT(NVARCHAR(255), @NumberOfFiles) + N' Files.' , ISNULL(@ScriptPath, @MapPath),GETDATE();
+    INSERT  [VerDeploy].RunScriptLog ( [RunGUID] , [Line] , [FileName],RunDateTime,[Database] )   SELECT  @RunGUID , N'Running ' + CONVERT(NVARCHAR(255), @NumberOfFiles) + N' Files.' , ISNULL(@ScriptPath, @MapPath),GETDATE(),@DatabaseName;
 	SET @FileName  = NULL;
 	--Clean Cursor
 	IF (SELECT CURSOR_STATUS('LOCAL','curRunSQLScript')) >= -1
@@ -352,16 +381,18 @@ BEGIN
 				SET @Print = CONCAT('Exec file.',@FileName);
 				RAISERROR (@Print,10,1) WITH NOWAIT;
 			END
-			INSERT  [VerDeploy].RunScriptLog ([RunGUID] ,[Line],[FileName]) SELECT  @RunGUID ,'Exec file.',@FileName;
+			INSERT  [VerDeploy].RunScriptLog ([RunGUID] ,[Line],[FileName],[Database]) SELECT  @RunGUID ,'Exec file.',@FileName,@DatabaseName;
 			EXEC [VerDeploy].[usp_Util_RunScript] @RunGUID,@FileName,@DatabaseName,@Version,@VersionRemarks,@debug;
 			UPDATE	[VerDeploy].RunScriptLog SET [EndDateTime] = GETDATE() WHERE [RunGUID] = RunGUID AND [Line] = 'Exec file.' AND [FileName] = @FileName;
+			SET @Print = CONCAT(@FileName,' run successfully.');
+			PRINT @Print;
 		END TRY
 		BEGIN CATCH	
 			SET @error = ERROR_MESSAGE();		
 			UPDATE	[VerDeploy].RunScriptLog SET [EndDateTime] = GETDATE(),Error = @error WHERE [RunGUID] = RunGUID AND [Line] = 'Exec file.' AND [FileName] = @FileName;
 			SET @error = CONCAT(OBJECT_SCHEMA_NAME(@@PROCID) , '.' , OBJECT_NAME(@@PROCID) , ' :: ',@error);
-			--RAISERROR (@error, 16, 1);
-			--GOTO CleanUp;
+			RAISERROR (@error, 16, 1);
+			GOTO CleanUp;
 		END CATCH
 
 
@@ -388,7 +419,7 @@ BEGIN
 	ELSE --@NumberOfFiles <= 0 -- No Files in Dir.
 	BEGIN
 		SET @error = N'No Files in Dir.';	
-	    INSERT  [VerDeploy].RunScriptLog ([RunGUID] ,[Line],Error) SELECT  @RunGUID ,@error,@error;
+	    INSERT  [VerDeploy].RunScriptLog ([RunGUID] ,[Line],Error,[Database]) SELECT  @RunGUID ,@error,@error,@DatabaseName;
 		SET @error = CONCAT(OBJECT_SCHEMA_NAME(@@PROCID) , '.' , OBJECT_NAME(@@PROCID) , ' :: ',@error);
 		RAISERROR (@error, 16, 1);
 		GOTO CleanUp;
@@ -402,6 +433,8 @@ CleanUp:
 	-------------------------------------   Drop Temp Tables   ----------------------------------------        
     IF OBJECT_ID('tempdb..#DirTree') IS NOT NULL
         DROP TABLE #DirTree;
+	IF OBJECT_ID('tempdb..#FilteredDirTree') IS NOT NULL
+        DROP TABLE #FilteredDirTree;
     IF OBJECT_ID('tempdb..#Result') IS NOT NULL
         DROP TABLE #Result;
     ---------------------------------------------------------------------------------------------------
@@ -424,5 +457,5 @@ CleanUp:
 	
 	UPDATE	[VerDeploy].RunScriptLog SET [EndDateTime] = GETDATE() WHERE [RunGUID] = @RunGUID AND [FileName] = ISNULL(@ScriptPath, @MapPath) AND [Line] LIKE 'Running %';
 SendMail:
-	EXEC [VerDeploy].[usp_SendMail] @RunGUID,@MailRecipiants;
+	EXEC [VerDeploy].[usp_SendMail] @RunGUID,@MailRecipients,@RunningScript,@debug;
 END;

@@ -1,7 +1,7 @@
 ﻿-- =============================================
 -- Author:		Sharon Rimer
 -- Create date: 15/02/2017
--- Description:	Run Script From File Table
+-- Description:	RunScriptFromFileTable
 -- =============================================
 CREATE PROCEDURE [VerDeploy].[usp_Util_INNER_RunScriptFromFileTable]
 	@RunGUID UNIQUEIDENTIFIER,
@@ -57,6 +57,11 @@ BEGIN
 			END TRY
 			BEGIN CATCH
 				SELECT @error = ERROR_MESSAGE();
+				IF @debug = 1 
+				BEGIN
+					PRINT '-------------------------- Error ---------------------------'
+					PRINT @error;
+				END
 				IF ERROR_NUMBER() = 111
 				BEGIN
 				    BEGIN TRY
@@ -102,6 +107,7 @@ BEGIN
 					BEGIN TRANSACTION
 				ELSE
 					SAVE TRANSACTION RunScriptFromFileTable;
+					SET @sql = REPLACE(@sql,'''''','''');
 					IF @debug = 1
 					BEGIN
 						PRINT '---------------------------With Complisite Tran--------------------------------------------';
@@ -113,9 +119,13 @@ BEGIN
 				IF @trancount = 0  COMMIT TRANSACTION
 			END TRY
 			BEGIN CATCH
-				SET  @xstate = XACT_STATE();
-				SELECT @error = ERROR_MESSAGE();
-				
+				SELECT	@error = ERROR_MESSAGE(),
+						@xstate = XACT_STATE();
+				IF @debug = 1 
+				BEGIN
+					PRINT '-------------------------- Error ---------------------------'
+					PRINT @error;
+				END
 				IF @xstate = -1
 					ROLLBACK;
 				IF @xstate = 1 and @trancount = 0

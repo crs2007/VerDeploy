@@ -87,6 +87,7 @@
     <Build Include="VerDeploy\Stored Procedures\usp_Util_SetAGToSync.sql" />
     <Build Include="VerDeploy\Stored Procedures\usp_Util_SetAGToAsync.sql" />
     <Build Include="Security\VerDeploy.sql" />
+    <Build Include="VerDeploy\Stored Procedures\usp_GetLastSummary.sql" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assemblies\RegexSQLCLR.dll" />

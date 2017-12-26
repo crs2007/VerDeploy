@@ -1,6 +1,8 @@
 ﻿-- =============================================
 -- Author:		Sharon Rimer
 -- Create date: 19/02/2017
+--				15/11/2017 Sharon Rimer Add @Database to error logger.
+--				03/12/2017 Sharon Rimer Change error message.
 -- Description:	Run Script Within transaction
 -- =============================================
 CREATE PROCEDURE [VerDeploy].[usp_Util_RunScript]
@@ -31,8 +33,22 @@ BEGIN
 	BEGIN
 		SET @error = CONCAT(OBJECT_SCHEMA_NAME(@@PROCID) + '.' + OBJECT_NAME(@@PROCID),' :: ','The table [dbo].[DatabaseVersion] does not exists in "',@Database,'" database you are running this script on, please check the database !');
 		
-        RAISERROR(@error,16,1);
-        RETURN -1;
+        RAISERROR(@error,10,1);
+		INSERT  [VerDeploy].RunScriptLog ( [RunGUID] , [Line] ,RunDateTime,[Error],[Database] )   SELECT  @RunGUID ,@error ,GETDATE(),@error,ISNULL(@Database,'');
+		SET @cmd = CONCAT('USE ',@Database,';',CHAR(13),'CREATE TABLE [dbo].[DatabaseVersion](
+	[Id] [int] IDENTITY(1,1) NOT NULL,
+	[Version] [nvarchar](50) NULL,
+	[Remarks] [nvarchar](max) NULL,
+	[ChangeDate] [datetime] NULL CONSTRAINT [DF_t_DatabaseVersion_VER_TimeStamp]  DEFAULT (getdate()),
+ CONSTRAINT [PK_DatabaseVersion] PRIMARY KEY CLUSTERED 
+(
+	[Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, FILLFACTOR = 90) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY];');
+		EXECUTE sp_executesql @cmd;
+
+
+
 	END
 	--- Check if the script is executed on our database (END) ---
 	--- Change Database Version (BEGIN) ---
@@ -43,6 +59,11 @@ BEGIN
 			SAVE TRANSACTION usp_Util_RunScript1;
 			
 			SET @cmd = CONCAT('INSERT ',@Database,'.[dbo].[DatabaseVersion] (Version, Remarks) Values (@Version,  @VersionRemarks);');
+			IF @debug = 1
+			BEGIN
+				PRINT @cmd;
+				SELECT @Version [@Version] , @VersionRemarks [@VersionRemarks]
+			END
 			EXECUTE sp_executesql @cmd, N'@Version NVARCHAR(50),@VersionRemarks NVARCHAR(MAX)',@Version = @Version , @VersionRemarks = @VersionRemarks;
 		IF @trancount = 0  COMMIT TRANSACTION
 	END TRY
@@ -55,7 +76,7 @@ BEGIN
 		IF @xstate = 1 and @trancount > 0
 			ROLLBACK TRANSACTION usp_Util_RunScript1;
 		SET @ErrSeverity = ERROR_SEVERITY()
-		SET @ErrMsg = 'Version ' + @Version + ' probably already exists ' + char(13) + CHAR(9) + 'Message: ' + ERROR_MESSAGE();
+		SET @ErrMsg = CONCAT('Version ',@Version,' probably already exists in ',@Database,'.[dbo].[DatabaseVersion]');--,char(13),CHAR(10),'Message: ' + ERROR_MESSAGE();
 		RAISERROR(@ErrMsg, @ErrSeverity, 1);
 		RETURN -1;
 	END CATCH

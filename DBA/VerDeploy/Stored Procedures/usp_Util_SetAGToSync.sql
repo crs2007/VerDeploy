@@ -1,7 +1,7 @@
 ﻿-- =============================================
 -- Author:      Sharon Rimer
 -- Create date: 19/02/2017
--- Update date: 
+-- Update date: 19/11/2017 Sharon Rimer Change Concat to inner query
 -- Description: Set Always on availability groups to Sync
 -- =============================================
 CREATE PROCEDURE [VerDeploy].[usp_Util_SetAGToSync]
@@ -14,9 +14,11 @@ BEGIN
 	
     DECLARE @error NVARCHAR(2048);
 	DECLARE @Sync NVARCHAR(MAX) = N'';
-
-	SELECT  @Sync +='ALTER AVAILABILITY GROUP ' + QUOTENAME(ag.name) + ' MODIFY REPLICA ON N''' + ar.replica_server_name + ''' WITH (FAILOVER_MODE = AUTOMATIC);
-ALTER AVAILABILITY GROUP ' + QUOTENAME(ag.name) + ' MODIFY REPLICA ON N''' + ar.replica_server_name + ''' WITH (AVAILABILITY_MODE = SYNCHRONOUS_COMMIT);' 
+	
+	SELECT @Sync += [Script] FROM (
+	SELECT  DISTINCT  '
+ALTER AVAILABILITY GROUP ' + QUOTENAME(ag.name) + ' MODIFY REPLICA ON N''' + ar.replica_server_name + ''' WITH (FAILOVER_MODE = AUTOMATIC);
+ALTER AVAILABILITY GROUP ' + QUOTENAME(ag.name) + ' MODIFY REPLICA ON N''' + ar.replica_server_name + ''' WITH (AVAILABILITY_MODE = SYNCHRONOUS_COMMIT);'  AS [Script]
 	FROM    sys.dm_hadr_database_replica_states AS drs
 			INNER JOIN sys.availability_databases_cluster AS adc ON drs.group_id = adc.group_id
 																  AND drs.group_database_id = adc.group_database_id
@@ -24,9 +26,7 @@ ALTER AVAILABILITY GROUP ' + QUOTENAME(ag.name) + ' MODIFY REPLICA ON N''' + ar.
 			INNER JOIN sys.availability_replicas AS ar ON drs.group_id = ar.group_id
 														  AND drs.replica_id = ar.replica_id
 	WHERE	adc.database_name = @DatabaseName
-	ORDER BY ag.name ,
-			ar.replica_server_name ,
-			adc.database_name;
+			AND ar.availability_mode = 0)T;
 
 	IF LEN(@Sync) > 10
 	BEGIN

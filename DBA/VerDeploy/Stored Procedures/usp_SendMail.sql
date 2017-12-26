@@ -1,11 +1,16 @@
 ﻿-- =============================================
--- Author:		 Sharon Rimer
+-- Author:		Sharon Rimer
 -- Create date: 22/02/2017
--- Description: Send Mail
+-- Update date: 12/11/2017 Sharon Rimer Add to [VerDeploy].[RunScriptLog] [Database] column - to mail
+--				15/11/2017 Sharon Rimer Add @RunningScript to mail in white.
+--				03/12/2017 Sharon Rimer Add Running Guid to the bottom of the mail
+-- Description:	Send Mail
 -- =============================================
 CREATE PROCEDURE [VerDeploy].[usp_SendMail]
 	@RunGUID UNIQUEIDENTIFIER = NULL,
-	@MailRecipiants NVARCHAR(255) = 'sharonr@boltinc.com'
+	@MailRecipients NVARCHAR(255) = '',
+	@RunningScript NVARCHAR(max) = NULL,
+	@Debug BIT = 0
 WITH EXECUTE AS CALLER
 AS 
 BEGIN
@@ -14,12 +19,15 @@ BEGIN
     DECLARE @MailSubject NVARCHAR(255) = N'Version Deployment';
     DECLARE @MailProfile sysname;
 	SELECT TOP 1 @MailProfile = name FROM msdb.dbo.sysmail_profile;
-    DECLARE @MailBodey NVARCHAR(MAX);
+    DECLARE @MailBodey NVARCHAR(MAX) = '';
     DECLARE @MailTable NVARCHAR(MAX);
-	
+	DECLARE @IsError BIT = 0;
+	SET @RunningScript = REPLACE(@RunningScript,'
+','<br>')
 	SELECT	@MailTable = CONCAT(
-   'Running on Server : ',@@SERVERNAME,'
-<br>Start at		  : ',CONVERT(VARCHAR(25),RSL.RunDateTime,113),'
+   'Running on Server : <strong>',@@SERVERNAME,'</strong>
+<br>Database		  : <strong>',RSL.[Database],'</strong>
+<br>Start at		  : <strong>',CONVERT(VARCHAR(25),RSL.RunDateTime,113),'</strong>
 <br><br>',RSL.Line,Sc.[Text],fSc.[Text],'
 <br>Scripts path	  : ',RSL.FileName,'
 <br>Total runtime	  : ',RSL.DurationInSec,' seconds.<br>',db.Line)
@@ -28,35 +36,44 @@ BEGIN
 			OUTER APPLY (SELECT CONCAT('<br><font style="color:#41A317;">&nbsp;&nbsp;&nbsp;',COUNT_BIG(1),' files run successfully.</font>')Text FROM [VerDeploy].RunScriptLog iDB WHERE iDB.RunGUID = @RunGUID AND iDB.Line = 'Exec file.' AND iDB.Error IS NULL)Sc
 			OUTER APPLY (SELECT CONCAT('<br><font style="color:#990012;">&nbsp;&nbsp;&nbsp;',COUNT_BIG(1),' files failed running.</font>')Text FROM [VerDeploy].RunScriptLog iDB WHERE iDB.RunGUID = @RunGUID AND iDB.Line = 'Exec file.' AND iDB.Error IS NOT NULL)fSc
 	WHERE	RSL.RunGUID = @RunGUID
-			AND RSL.Line LIKE 'Running %';
+			AND (RSL.Line LIKE 'Running %' OR RSL.Line = 'No Files in Dir.');
+	
 
-              SET @MailTable += '<br>
+	IF EXISTS(SELECT TOP 1 1 FROM [VerDeploy].RunScriptLog RSL
+			LEFT JOIN [VerDeploy].TextFromAFile TFF ON TFF.RunGUID = RSL.RunGUID
+				AND TFF.FileName = RSL.FileName
+	WHERE	RSL.RunGUID = @RunGUID
+			AND RSL.Line = 'Exec file.'
+			AND RSL.Error IS NOT NULL)
+	BEGIN
+	    SET @IsError = 1;	    
+	END
+
+    SET @MailTable += '<br>
 <table class="sample">
 <tr>
        <td style="background-color:#E6E6E6; color:#2E64FE; font-weight:bolder;font-size:14px;">File Name</td>
        <td style="background-color:#E6E6E6; color:#2E64FE; font-weight:bolder;font-size:14px;">Version</td>
        <td style="background-color:#E6E6E6; color:#2E64FE; font-weight:bolder;font-size:14px;">Version Remarks</td>
-       <td style="background-color:#E6E6E6; color:#2E64FE; font-weight:bolder;font-size:14px;">Error</td>
+       ' + IIF(@IsError = 1,'<td style="background-color:#E6E6E6; color:#2E64FE; font-weight:bolder;font-size:14px;">Error</td>','') + '
        <td style="background-color:#E6E6E6; color:#2E64FE; font-weight:bolder;font-size:14px;">Duration</td>
 </tr>';
 
-
-
-	SELECT	@MailTable += CONCAT('<tr><td><B>',RSL.FileName ,
+	SELECT	@MailTable += CONCAT('<tr><td><B>',TFF.FileName ,
 			'</B></td><td>',TFF.Version,
-			'</td><td>',TFF.VersionRemarks ,
-			'</td><td style="color:#990012;">',RSL.Error ,
-			'</td><td>',RSL.DurationInSec ,'</td></tr>')
-	FROM	[VerDeploy].RunScriptLog RSL
-			LEFT JOIN [VerDeploy].TextFromAFile TFF ON TFF.RunGUID = RSL.RunGUID
+			'</td><td>',TFF.VersionRemarks ,IIF(@IsError = 1,
+			'</td><td style="color:#990012;">' + IIF(RSL.FileName IS NULL,'File have not run',REPLACE(RSL.Error,CHAR(10),'<br>')),''),
+			'</td><td>',[dbo].[ufn_Util_ConvertTimeToHHMMSS](RSL.DurationInSec,'s') ,'</td></tr>')
+	FROM	[VerDeploy].TextFromAFile TFF
+			LEFT JOIN [VerDeploy].RunScriptLog RSL ON TFF.RunGUID = RSL.RunGUID
 				AND TFF.FileName = RSL.FileName
-	WHERE	RSL.RunGUID = @RunGUID
-			AND RSL.Line = 'Exec file.';
+				AND RSL.Line = 'Exec file.'
+	WHERE	TFF.RunGUID = @RunGUID;
 
     SET @MailTable += '
 </table>'
 
-       SET @MailBodey =
+       SET @MailBodey = CONCAT(
 '
 <!DOCTYPE html>
 <html>
@@ -89,17 +106,23 @@ table.sample td {
        }
 </style>
 <font face="Segoe UI" size="2">
-<H1><p style=''font-size:18.0pt;font-family:"Bradley Hand ITC"''>' + @MailSubject + N'</p></H1>
-<br/>' + @MailTable  + '<br/>
-
+<H1><p style=''font-size:18.0pt;font-family:"Bradley Hand ITC"''>',@MailSubject,N'</p></H1>
+<br/>',@MailTable,N'<br/>
 </font>
+<font face="Segoe UI" size="2" color="white">',ISNULL(@RunningScript,N''),N'</font><br>
+<font face="Segoe UI" size="2">Runnig Guid: ',@RunGUID,N'</font>
 </body>
-</html>';
+</html>');
 
-
+	IF @Debug = 1
+	BEGIN
+	    PRINT CONCAT('@MailRecipients:',@MailRecipients);
+		PRINT CONCAT('@MailBodey:',@MailBodey);
+	END
 	EXEC msdb.dbo.sp_send_dbmail 
 		@profile_name = @MailProfile,
-		@recipients = @MailRecipiants, 
+		@recipients = @MailRecipients, 
+		@blind_copy_recipients = 'MakeYourChoice@xxx.com;',
 		@subject = @MailSubject,
 		@body = @MailBodey, 
 		@body_format = HTML,

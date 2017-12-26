@@ -5,6 +5,9 @@
     [Line]          NVARCHAR (MAX)   NULL,
     [FileName]      VARCHAR (2000)   NULL,
     [Error]         VARCHAR (MAX)    NULL,
-    [DurationInSec] AS               (datediff(second,[RunDateTime],[EndDateTime]))
+    [DurationInSec] AS               (datediff(second,[RunDateTime],[EndDateTime])),
+    [Database]      [sysname]        NOT NULL
 );
+
+
 
